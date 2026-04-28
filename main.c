@@ -111,7 +111,7 @@ static void bounce(void)
         if (nm > 1e-10) { drop.x -= (0.02-d)*nx/nm; drop.y -= (0.02-d)*ny/nm; }
     }
 
-    /* Poincare: y=0 upward crossing */
+    /* Poincare: y=0 upward crossing, record (x, dx) */
     if (prev_drop.y <= 0 && drop.y > 0) {
         double dy = drop.y-prev_drop.y;
         double frac = (dy>1e-15) ? -prev_drop.y/dy : 0.5;

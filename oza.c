@@ -112,7 +112,7 @@ static void bounce(void)
         double nm=sqrt(nx*nx+ny*ny);
         if (nm>1e-10) { drop.x-=(0.02-d)*nx/nm; drop.y-=(0.02-d)*ny/nm; } }
 
-    /* Poincare */
+    /* Poincare: record (x, vx) at y=0 upward crossing */
     if (by<=0 && drop.y>0) {
         double dy=drop.y-by, frac=(dy>1e-15)?-by/dy:0.5;
         double xc=bx+frac*(drop.x-bx);
