@@ -3,5 +3,6 @@ oza
 harmonic
 billiard
 schrodinger
+core.o
 lib/libraylib.a
 lib/raylib-src/*.o
