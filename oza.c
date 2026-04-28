@@ -26,7 +26,25 @@ static int    moment_n = 0;
 static V2     poincare[MAX_POINCARE];
 static int    n_poincare = 0, poincare_head = 0;
 
-enum { VIEW_HIST, VIEW_BORN, VIEW_KURTOSIS, VIEW_POINCARE, VIEW_COUNT };
+/* Angular momentum */
+#define L_HISTORY 4000
+static double L_hist[L_HISTORY];
+static double L_max_val = 0.001;
+static int    L_head = 0, L_count = 0;
+
+/* Orbit diagram: (mu, x_P) from Poincare crossings */
+#define MAX_ORBIT 200000
+static V2     orbit_pts[MAX_ORBIT];
+static int    n_orbit = 0;
+static double orbit_mu_min = 1, orbit_mu_max = 0;
+
+/* Auto-sweep */
+static int    sweeping = 0;
+static double sweep_from, sweep_to, sweep_step = 0.005;
+static int    sweep_settle = 2000, sweep_record = 50;
+static int    sweep_phase = 0, sweep_counter = 0;
+
+enum { VIEW_HIST, VIEW_BORN, VIEW_KURTOSIS, VIEW_POINCARE, VIEW_ORBIT, VIEW_COUNT };
 static int view_mode = VIEW_HIST;
 static Color wpix[GRID*GRID], rpix[GRID*GRID];
 
@@ -67,6 +85,18 @@ static void bounce(void)
     vel.y = drag*vel.y - P.beta*gy;
     drop.x += vel.x; drop.y += vel.y;
 
+    /* Angular momentum: L = x*vy - y*vx */
+    {
+        double L = drop.x*vel.y - drop.y*vel.x;
+        L_hist[L_head] = L;
+        L_head = (L_head+1) % L_HISTORY;
+        if (L_count < L_HISTORY) L_count++;
+        double aL = fabs(L);
+        if (aL > L_max_val) L_max_val = aL*1.1;
+        L_max_val *= 0.99999;
+        if (L_max_val < 0.001) L_max_val = 0.001;
+    }
+
     /* Wall */
     double d = geo_sdf(geometry, drop.x, drop.y);
     if (d < 0.15) {
@@ -88,6 +118,25 @@ static void bounce(void)
         double xc=bx+frac*(drop.x-bx);
         if (n_poincare<MAX_POINCARE) poincare[n_poincare++]=(V2){xc,vel.x};
         else { poincare[poincare_head]=(V2){xc,vel.x}; poincare_head=(poincare_head+1)%MAX_POINCARE; }
+
+        /* Orbit diagram */
+        if (n_orbit < MAX_ORBIT) {
+            orbit_pts[n_orbit++] = (V2){P.mu, xc};
+            if (P.mu < orbit_mu_min) orbit_mu_min = P.mu;
+            if (P.mu > orbit_mu_max) orbit_mu_max = P.mu;
+        }
+        /* Auto-sweep: count crossings in record phase */
+        if (sweeping && sweep_phase == 1) {
+            if (++sweep_counter >= sweep_record) {
+                P.mu += sweep_step;
+                if (P.mu > sweep_to + 0.0001) sweeping = 0;
+                else { sweep_phase = 0; sweep_counter = 0; }
+            }
+        }
+    }
+    /* Auto-sweep: count settle steps */
+    if (sweeping && sweep_phase == 0) {
+        if (++sweep_counter >= sweep_settle) { sweep_phase = 1; sweep_counter = 0; }
     }
 
     mem[mhead]=(V2){bx,by}; mhead=(mhead+1)%MAX_MEM;
@@ -100,6 +149,8 @@ static void reset_sim(void)
 {
     nmem=0; mhead=0; total=0; hpeak=1; moment_n=0;
     n_poincare=0; poincare_head=0;
+    n_orbit=0; orbit_mu_min=1; orbit_mu_max=0; sweeping=0;
+    L_head=0; L_count=0; L_max_val=0.001;
     drop=(V2){0.25,0.0}; vel=(V2){0,0};
     memset(wave,0,sizeof(wave)); memset(hist,0,sizeof(hist));
     memset(h2_sum,0,sizeof(h2_sum)); memset(h4_sum,0,sizeof(h4_sum));
@@ -107,7 +158,7 @@ static void reset_sim(void)
 
 int main(void)
 {
-    InitWindow(WIN_W, WIN_H, "Oza - Level 1 (velocity + drag)");
+    InitWindow(WIN_W_L, WIN_H_L, "Oza - Level 1 (velocity + drag)");
     SetTargetFPS(30);
     Image img=GenImageColor(GRID,GRID,BLACK);
     Texture2D wtex=LoadTextureFromImage(img), rtex=LoadTextureFromImage(img);
@@ -119,8 +170,8 @@ int main(void)
         if (IsKeyPressed(KEY_G))     { geometry=(geometry+1)%GEO_COUNT; reset_sim(); }
         if (IsKeyPressed(KEY_V))     view_mode=(view_mode+1)%VIEW_COUNT;
         if (IsKeyPressed(KEY_T))     { turbo=!turbo; SetTargetFPS(turbo?10:30); }
-        if (IsKeyPressed(KEY_UP))    P.mu=fmin(P.mu+0.005,0.999);
-        if (IsKeyPressed(KEY_DOWN))  P.mu=fmax(P.mu-0.005,0.5);
+        if (IsKeyPressed(KEY_UP))   { P.mu=fmin(P.mu+0.005,0.999); n_poincare=0; poincare_head=0; }
+        if (IsKeyPressed(KEY_DOWN)) { P.mu=fmax(P.mu-0.005,0.5); n_poincare=0; poincare_head=0; }
         if (IsKeyPressed(KEY_RIGHT)) P.beta*=1.15;
         if (IsKeyPressed(KEY_LEFT))  P.beta/=1.15;
         if (IsKeyPressed(KEY_D))     drag=fmin(drag+0.01,0.999);
@@ -129,6 +180,12 @@ int main(void)
         if (IsKeyPressed(KEY_K))     { P.kF=fmax(P.kF-1.0,2.0); reset_sim(); }
         if (IsKeyPressed(KEY_EQUAL)) speed=speed<50?speed+1:speed;
         if (IsKeyPressed(KEY_MINUS)) speed=speed>1?speed-1:speed;
+        if (IsKeyPressed(KEY_O)) {
+            sweeping=1; sweep_from=P.mu; sweep_to=fmin(P.mu+0.1,0.999);
+            sweep_step=0.005; sweep_phase=0; sweep_counter=0;
+            view_mode=VIEW_ORBIT; speed=50;
+            printf("Orbit sweep: mu %.3f -> %.3f\n",sweep_from,sweep_to);
+        }
 
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)&&!turbo) {
             Vector2 m=GetMousePosition();
@@ -155,6 +212,31 @@ int main(void)
         case VIEW_BORN:     render_born(rpix,h2_sum,moment_n,geometry,1.0); break;
         case VIEW_KURTOSIS: render_kurtosis(rpix,h2_sum,h4_sum,moment_n,geometry,1.0); break;
         case VIEW_POINCARE: render_poincare(rpix,poincare,n_poincare,poincare_head,MAX_POINCARE); break;
+        case VIEW_ORBIT: {
+            /* Orbit diagram: mu on x, x_P on y */
+            for (int i=0;i<GRID*GRID;i++) rpix[i]=(Color){15,15,20,255};
+            if (n_orbit > 0) {
+                double mu_lo=orbit_mu_min-0.01, mu_hi=orbit_mu_max+0.01;
+                if (mu_hi-mu_lo<0.02) { mu_lo-=0.01; mu_hi+=0.01; }
+                double x_lo=1e30,x_hi=-1e30;
+                for (int i=0;i<n_orbit;i++) {
+                    if (orbit_pts[i].y<x_lo) x_lo=orbit_pts[i].y;
+                    if (orbit_pts[i].y>x_hi) x_hi=orbit_pts[i].y;
+                }
+                double xm=(x_hi-x_lo)*0.1+0.01; x_lo-=xm; x_hi+=xm;
+                static int od[GRID][GRID]; memset(od,0,sizeof(od)); int om=1;
+                for (int i=0;i<n_orbit;i++) {
+                    int px=(int)((orbit_pts[i].x-mu_lo)/(mu_hi-mu_lo)*(GRID-1));
+                    int py=(int)((1.0-(orbit_pts[i].y-x_lo)/(x_hi-x_lo))*(GRID-1));
+                    if (px>=0&&px<GRID&&py>=0&&py<GRID) {
+                        od[py][px]++; if (od[py][px]>om) om=od[py][px]; }
+                }
+                double lm=log(1.0+om);
+                for (int iy=0;iy<GRID;iy++) for (int ix=0;ix<GRID;ix++)
+                    if (od[iy][ix]>0) rpix[iy*GRID+ix]=cmap_hot(log(1.0+od[iy][ix])/lm);
+            }
+            break;
+        }
         }
         UpdateTexture(rtex,rpix);
 
@@ -173,17 +255,26 @@ int main(void)
         DrawText(turbo?"TURBO [T]":"Wave Field",lx,ly+PANEL+4,16,LIGHTGRAY);
 
         DrawTextureEx(rtex,(Vector2){rx,ry},0,sc,WHITE);
-        if (view_mode==VIEW_POINCARE) DrawRectangleLines(rx,ry,PANEL,PANEL,GRAY);
-        else geo_draw_outline(geometry,rx,ry,PANEL);
-        { const char *vn[]={"Histogram","Born <h^2>","Kurtosis","Poincare (x,vx)"};
+        if (view_mode==VIEW_POINCARE || view_mode==VIEW_ORBIT) {
+            DrawRectangleLines(rx,ry,PANEL,PANEL,GRAY);
+            if (sweeping && view_mode==VIEW_ORBIT) {
+                char sb[64]; snprintf(sb,sizeof(sb),"Sweeping mu=%.3f",P.mu);
+                DrawText(sb,rx+4,ry+4,14,(Color){255,200,100,255});
+            }
+        } else geo_draw_outline(geometry,rx,ry,PANEL);
+        { const char *vn[]={"Histogram","Born <h^2>","Kurtosis","Poincare (x,vx)","Orbit Diagram"};
           DrawText(vn[view_mode],rx,ry+PANEL+4,16,LIGHTGRAY); }
 
-        int iy=GAP+PANEL+24; char buf[256];
+        /* Angular momentum strip */
+        int Ly = GAP+PANEL+20, Lw = PANEL*2+GAP;
+        draw_L_strip(L_hist, L_head, L_count, L_HISTORY, L_max_val, lx, Ly, Lw, LSTRIP);
+
+        int iy = Ly+LSTRIP+4; char buf[256];
         snprintf(buf,sizeof(buf),"Bounces: %d | mu: %.3f | beta: %.4f | drag: %.3f [D/F] | speed: %d | %s",
             total,P.mu,P.beta,drag,speed,paused?"PAUSED":"[Space]");
         DrawText(buf,GAP,iy,14,LIGHTGRAY);
-        snprintf(buf,sizeof(buf),"kF: %.1f [K/L] | %s [G] | vel: %.4f | [V] view | [T] turbo",
-            P.kF,geo_name(geometry),sqrt(vel.x*vel.x+vel.y*vel.y));
+        snprintf(buf,sizeof(buf),"kF: %.1f [K/L] | %s [G] | vel: %.4f | Orbit: %d | [O] sweep | [V] view | [T] turbo",
+            P.kF,geo_name(geometry),sqrt(vel.x*vel.x+vel.y*vel.y),n_orbit);
         DrawText(buf,GAP,iy+18,14,GRAY);
 
         EndDrawing();

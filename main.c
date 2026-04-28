@@ -25,6 +25,11 @@ static int    moment_n = 0;
 static V2     poincare[MAX_POINCARE];
 static int    n_poincare = 0, poincare_head = 0;
 
+#define L_HISTORY 4000
+static double L_hist[L_HISTORY];
+static double L_max_val = 0.001;
+static int    L_head = 0, L_count = 0;
+
 enum { VIEW_HIST, VIEW_BORN, VIEW_KURTOSIS, VIEW_POINCARE, VIEW_COUNT };
 static int view_mode = VIEW_HIST;
 static Color wpix[GRID*GRID], rpix[GRID*GRID];
@@ -115,6 +120,18 @@ static void bounce(void)
         if (n_poincare < MAX_POINCARE) poincare[n_poincare++] = (V2){xc,dxc};
         else { poincare[poincare_head] = (V2){xc,dxc}; poincare_head = (poincare_head+1)%MAX_POINCARE; }
     }
+    /* Angular momentum: L = x*dy - y*dx (displacement as velocity proxy) */
+    {
+        double dx = drop.x - prev_drop.x, dy = drop.y - prev_drop.y;
+        double L = drop.x*dy - drop.y*dx;
+        L_hist[L_head] = L;
+        L_head = (L_head+1) % L_HISTORY;
+        if (L_count < L_HISTORY) L_count++;
+        double aL = fabs(L);
+        if (aL > L_max_val) L_max_val = aL*1.1;
+        L_max_val *= 0.99999;
+        if (L_max_val < 0.001) L_max_val = 0.001;
+    }
     prev_drop = drop;
 
     mem[mhead] = drop;
@@ -130,6 +147,7 @@ static void reset(void)
 {
     nmem=0; mhead=0; total=0; hpeak=1; moment_n=0;
     n_poincare=0; poincare_head=0; n_pending=0;
+    L_head=0; L_count=0; L_max_val=0.001;
     drop = (V2){0.25,0.0}; prev_drop = drop;
     memset(wave,0,sizeof(wave)); memset(hist,0,sizeof(hist));
     memset(h2_sum,0,sizeof(h2_sum)); memset(h4_sum,0,sizeof(h4_sum));
@@ -139,7 +157,7 @@ static void reset(void)
 
 int main(void)
 {
-    InitWindow(WIN_W, WIN_H, "Walker - Level 0 (Direct Bessel)");
+    InitWindow(WIN_W_L, WIN_H_L, "Walker - Level 0 (Direct Bessel)");
     SetTargetFPS(30);
     Image img = GenImageColor(GRID,GRID,BLACK);
     Texture2D wtex = LoadTextureFromImage(img);
@@ -212,7 +230,11 @@ int main(void)
         { const char *vn[]={"Histogram","Born <h^2>","Kurtosis","Poincare (x,dx)"};
           DrawText(vn[view_mode],rx,ry+PANEL+4,16,LIGHTGRAY); }
 
-        int iy=GAP+PANEL+24; char buf[256];
+        /* Angular momentum strip */
+        int Ly = GAP+PANEL+20, Lw = PANEL*2+GAP;
+        draw_L_strip(L_hist, L_head, L_count, L_HISTORY, L_max_val, lx, Ly, Lw, LSTRIP);
+
+        int iy = Ly+LSTRIP+4; char buf[256];
         snprintf(buf,sizeof(buf),"Bounces: %d | mu: %.3f [Up/Dn] | beta: %.4f [Lt/Rt] | speed: %d [+/-] | %s",
             total,P.mu,P.beta,speed,paused?"PAUSED":"[Space]");
         DrawText(buf,GAP,iy,14,LIGHTGRAY);

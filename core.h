@@ -71,8 +71,18 @@ void draw_droplet(double x, double y, int ox, int oy, int sz, double scale);
 /* ----- Turbo display ----- */
 void draw_turbo(int ox, int oy, int sz, double rate, const char *unit);
 
+/* ----- Angular momentum strip ----- */
+/* Draw scrolling L time series. Ring buffer of doubles.
+ * ox, oy, w, h define the strip rectangle. */
+void draw_L_strip(double *L_hist, int L_head, int L_count, int L_max,
+                  double L_scale, int ox, int oy, int w, int h);
+
 /* ----- Coordinate conversion ----- */
-/* Physics coords in [-scale, scale] to screen pixel in panel */
 Vector2 phys2screen(double px, double py, int ox, int oy, int sz, double scale);
+
+/* ----- Layout with L strip ----- */
+#define LSTRIP  80
+#define WIN_W_L (PANEL*2 + GAP*3)
+#define WIN_H_L (PANEL + LSTRIP + GAP*3 + 40)
 
 #endif /* CORE_H */

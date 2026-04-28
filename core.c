@@ -347,3 +347,30 @@ void draw_turbo(int ox, int oy, int sz, double rate, const char *unit)
     DrawText(tb, ox+sz/2-60, oy+sz/2+15, 18, LIGHTGRAY);
     DrawText("[T] to exit turbo", ox+sz/2-75, oy+sz/2+40, 14, GRAY);
 }
+
+void draw_L_strip(double *L_hist, int L_head, int L_count, int L_max,
+                  double L_scale, int ox, int oy, int w, int h)
+{
+    DrawRectangle(ox, oy, w, h, (Color){15,15,20,255});
+    int mid = oy + h/2;
+    DrawLineV((Vector2){ox,mid}, (Vector2){ox+w,mid}, (Color){40,40,50,255});
+
+    if (L_count > 1) {
+        int npts = L_count < w ? L_count : w;
+        for (int k = 1; k < npts; k++) {
+            int i0 = (L_head - k + L_max) % L_max;
+            int i1 = (L_head - k - 1 + L_max) % L_max;
+            float x0 = ox + w - k, x1 = ox + w - k - 1;
+            float y0 = mid - (float)(L_hist[i0] / L_scale * h * 0.45);
+            float y1 = mid - (float)(L_hist[i1] / L_scale * h * 0.45);
+            Color lc = L_hist[i0] > 0 ? (Color){100,150,255,200} : (Color){255,100,100,200};
+            DrawLineV((Vector2){x0,y0}, (Vector2){x1,y1}, lc);
+        }
+    }
+
+    char lb[64];
+    double Lcur = L_count > 0 ? L_hist[(L_head-1+L_max)%L_max] : 0;
+    snprintf(lb, sizeof(lb), "L = %.4f", Lcur);
+    DrawText(lb, ox+4, oy+2, 12, LIGHTGRAY);
+    DrawText("Angular Momentum", ox+w-150, oy+2, 12, GRAY);
+}

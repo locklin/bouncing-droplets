@@ -707,32 +707,8 @@ int main(void)
           DrawText(l,rx,ry+PANEL+4,16,LIGHTGRAY); }
 
         /* Angular momentum strip */
-        int Ly = GAP + PANEL + 20;
-        int Lw = PANEL*2 + GAP;  /* full width */
-        DrawRectangle(lx, Ly, Lw, LSTRIP, (Color){15,15,20,255});
-        /* Zero line */
-        int Lmid = Ly + LSTRIP/2;
-        DrawLineV((Vector2){lx,Lmid},(Vector2){lx+Lw,Lmid},(Color){40,40,50,255});
-        /* Plot L(t) */
-        if (L_count > 1) {
-            for (int k = 1; k < L_count && k < Lw; k++) {
-                int i0 = (L_head - k + L_HISTORY) % L_HISTORY;
-                int i1 = (L_head - k - 1 + L_HISTORY) % L_HISTORY;
-                float x0 = lx + Lw - k;
-                float x1 = lx + Lw - k - 1;
-                float y0 = Lmid - (float)(L_hist[i0] / L_max * LSTRIP * 0.45);
-                float y1 = Lmid - (float)(L_hist[i1] / L_max * LSTRIP * 0.45);
-                Color lc = L_hist[i0] > 0 ? (Color){100,150,255,200} : (Color){255,100,100,200};
-                DrawLineV((Vector2){x0,y0},(Vector2){x1,y1},lc);
-            }
-        }
-        /* Labels */
-        { char lb[64];
-          double Lcur = L_count > 0 ? L_hist[(L_head-1+L_HISTORY)%L_HISTORY] : 0;
-          snprintf(lb,sizeof(lb),"L = %.4f", Lcur);
-          DrawText(lb, lx+4, Ly+2, 12, LIGHTGRAY);
-          DrawText("Angular Momentum", lx+Lw-150, Ly+2, 12, GRAY);
-        }
+        int Ly = GAP+PANEL+20, Lw = PANEL*2+GAP;
+        draw_L_strip(L_hist, L_head, L_count, L_HISTORY, L_max, lx, Ly, Lw, LSTRIP);
 
         /* Info bar */
         int iy = Ly + LSTRIP + 4;
