@@ -4,20 +4,23 @@ LIBS = lib/libraylib.a -lGL -lm -lpthread -ldl -lrt -lX11 -lXrandr -lXinerama -l
 
 all: lib/libraylib.a walker oza harmonic billiard schrodinger
 
-walker: main.c
-	$(CC) $(CFLAGS) -o $@ $< $(LIBS)
+core.o: core.c core.h
+	$(CC) $(CFLAGS) -c -o $@ core.c
 
-oza: oza.c
-	$(CC) $(CFLAGS) -o $@ $< $(LIBS)
+walker: main.c core.o core.h
+	$(CC) $(CFLAGS) -o $@ main.c core.o $(LIBS)
 
-harmonic: harmonic.c
-	$(CC) $(CFLAGS) -o $@ $< $(LIBS)
+oza: oza.c core.o core.h
+	$(CC) $(CFLAGS) -o $@ oza.c core.o $(LIBS)
 
-billiard: billiard.c
-	$(CC) $(CFLAGS) -o $@ $< $(LIBS)
+harmonic: harmonic.c core.o core.h
+	$(CC) $(CFLAGS) -o $@ harmonic.c core.o $(LIBS)
 
-schrodinger: schrodinger.c
-	$(CC) $(CFLAGS) -o $@ $< $(LIBS)
+billiard: billiard.c core.o core.h
+	$(CC) $(CFLAGS) -o $@ billiard.c core.o $(LIBS)
+
+schrodinger: schrodinger.c core.o core.h
+	$(CC) $(CFLAGS) -o $@ schrodinger.c core.o $(LIBS)
 
 lib/libraylib.a:
 	cd lib/raylib-src && $(CC) -c -O2 -DPLATFORM_DESKTOP \
@@ -28,7 +31,7 @@ lib/libraylib.a:
 	rm -f *.o
 
 clean:
-	rm -f walker oza harmonic billiard schrodinger
+	rm -f walker oza harmonic billiard schrodinger core.o
 
 clean-all: clean
 	rm -f lib/libraylib.a

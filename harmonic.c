@@ -23,113 +23,29 @@
  *   Click       place droplet
  */
 
-#include <math.h>
-#include <stdio.h>
-#include <string.h>
-#include <time.h>
-#include "raylib.h"
-
-/* ----- Configuration ----- */
+#include "core.h"
 
 #define NMODES    25
 #define NDIM      (2*NMODES + 5)
-#define GRID      200
 #define MAX_TRAIL 4000
 #define TRAIL_VIS 1000
 #define DT        0.01
 
-typedef struct { double x, y; } V2;
-
-/* ----- Geometry ----- */
-
-enum { GEO_STADIUM, GEO_DSHAPE, GEO_CIRCLE, GEO_RECT, GEO_NONE, GEO_COUNT };
 static int geometry = GEO_STADIUM;
 
-#define DSHAPE_R   0.9
-#define DSHAPE_CUT (-0.3)
-
-/* SDF returns positive inside, negative outside. Scale factor maps
- * geometry coords [-1,1] to simulation coords [-RMAX,RMAX]. */
 static double RMAX = 12.0;
 
-static double geo_sdf_unit(double x, double y)
-{
-    switch (geometry) {
-    case GEO_CIRCLE:  return 1.0 - sqrt(x*x + y*y);
-    case GEO_STADIUM: {
-        double a=0.5, r=0.5, ax=fabs(x);
-        return ax <= a ? r-fabs(y) : r-sqrt((ax-a)*(ax-a)+y*y);
-    }
-    case GEO_RECT:    return fmin(0.8-fabs(x), 0.5-fabs(y));
-    case GEO_DSHAPE:  return fmin(DSHAPE_R-sqrt(x*x+y*y), x-DSHAPE_CUT);
-    default:          return 1.0;  /* GEO_NONE: always inside */
-    }
+/* Geometry functions in simulation coords (scaled by RMAX) */
+static double h_geo_sdf(double sx, double sy) {
+    return geo_sdf(geometry, sx/RMAX, sy/RMAX) * RMAX;
 }
-
-/* SDF in simulation coordinates */
-static double geo_sdf(double sx, double sy)
-{
-    return geo_sdf_unit(sx / RMAX, sy / RMAX) * RMAX;
+static int h_geo_inside(double sx, double sy) {
+    return geo_inside(geometry, sx/RMAX, sy/RMAX);
 }
-
-static int geo_inside(double sx, double sy)
-{
-    return geometry == GEO_NONE || geo_sdf(sx, sy) > 0;
-}
-
-static void geo_normal(double sx, double sy, double *nx, double *ny)
-{
+static void h_geo_normal(double sx, double sy, double *nx, double *ny) {
     double eps = RMAX * 0.002;
-    *nx = -(geo_sdf(sx+eps,sy) - geo_sdf(sx-eps,sy)) / (2*eps);
-    *ny = -(geo_sdf(sx,sy+eps) - geo_sdf(sx,sy-eps)) / (2*eps);
-}
-
-#define S2P(px, py) (Vector2){ \
-    ox + ((float)((px)/RMAX)*0.5f+0.5f)*sz, \
-    oy + ((float)((py)/RMAX)*0.5f+0.5f)*sz }
-
-static void geo_draw_outline(int ox, int oy, int sz)
-{
-    int N = 200; Color col = LIGHTGRAY;
-    /* Draw in unit coords scaled to screen */
-    #define U2P(ux, uy) (Vector2){ \
-        ox + ((float)(ux)*0.5f+0.5f)*sz, oy + ((float)(uy)*0.5f+0.5f)*sz }
-
-    switch (geometry) {
-    case GEO_NONE: break;
-    case GEO_CIRCLE:
-        DrawCircleLinesV((Vector2){ox+sz/2.0f,oy+sz/2.0f}, sz/2.0f, col); break;
-    case GEO_STADIUM: {
-        float a=0.5f, r=0.5f;
-        DrawLineV(U2P(-a,r), U2P(a,r), col); DrawLineV(U2P(-a,-r), U2P(a,-r), col);
-        for (int i=0;i<N;i++) {
-            float t0=PI/2+PI*i/(float)N, t1=PI/2+PI*(i+1)/(float)N;
-            DrawLineV(U2P(-a+r*cosf(t0),r*sinf(t0)),U2P(-a+r*cosf(t1),r*sinf(t1)),col);}
-        for (int i=0;i<N;i++) {
-            float t0=-PI/2+PI*i/(float)N, t1=-PI/2+PI*(i+1)/(float)N;
-            DrawLineV(U2P(a+r*cosf(t0),r*sinf(t0)),U2P(a+r*cosf(t1),r*sinf(t1)),col);}
-        break; }
-    case GEO_RECT: {
-        float hw=0.8f, hh=0.5f;
-        DrawLineV(U2P(-hw,-hh),U2P(hw,-hh),col); DrawLineV(U2P(hw,-hh),U2P(hw,hh),col);
-        DrawLineV(U2P(hw,hh),U2P(-hw,hh),col); DrawLineV(U2P(-hw,hh),U2P(-hw,-hh),col);
-        break; }
-    case GEO_DSHAPE: {
-        float R=DSHAPE_R, yint=sqrtf(R*R-DSHAPE_CUT*DSHAPE_CUT);
-        float a0=atan2f(yint,DSHAPE_CUT),a1=atan2f(-yint,DSHAPE_CUT),span=a0-a1;
-        DrawLineV(U2P(DSHAPE_CUT,-yint),U2P(DSHAPE_CUT,yint),col);
-        for (int i=0;i<N;i++) {
-            float t0=a0-span*i/(float)N, t1=a0-span*(i+1)/(float)N;
-            DrawLineV(U2P(R*cosf(t0),R*sinf(t0)),U2P(R*cosf(t1),R*sinf(t1)),col);}
-        break; }
-    }
-    #undef U2P
-}
-#undef S2P
-
-static const char *geo_name(void) {
-    const char *n[] = {"Stadium","D-shape","Circle","Rectangle","None (harmonic)"};
-    return geometry < GEO_COUNT ? n[geometry] : "?";
+    *nx = -(h_geo_sdf(sx+eps,sy) - h_geo_sdf(sx-eps,sy)) / (2*eps);
+    *ny = -(h_geo_sdf(sx,sy+eps) - h_geo_sdf(sx,sy-eps)) / (2*eps);
 }
 
 /* ----- Parameters ----- */
@@ -145,7 +61,7 @@ static double state[NDIM];
 static V2     trail[MAX_TRAIL];
 static int    n_trail = 0, trail_head = 0;
 static double sim_time = 0;
-static int    paused = 0, speed = 50, turbo = 0;
+static int    paused = 0, speed = 300, turbo = 0;
 static double turbo_sps = 0;
 
 static inline int iC(int n) { return n == 0 ? 4 : 3 + 2*n; }
@@ -214,23 +130,6 @@ enum { VIEW_HIST, VIEW_BORN, VIEW_KURTOSIS, VIEW_POINCARE, VIEW_ORBIT, VIEW_COUN
 static int view_mode = VIEW_HIST;
 
 static Color wpix[GRID*GRID], rpix[GRID*GRID];
-
-/* ----- Colormaps ----- */
-
-static Color cmap_bwr(double t) {
-    if (t < 0) t = 0; if (t > 1) t = 1;
-    if (t < 0.5) { unsigned char v=(unsigned char)(t*2*255); return (Color){v,v,255,255}; }
-    else { unsigned char v=(unsigned char)((1-t)*2*255); return (Color){255,v,v,255}; }
-}
-
-static Color cmap_hot(double t) {
-    if (t < 0) t = 0; if (t > 1) t = 1;
-    unsigned char r,g,b;
-    if (t<0.33) { r=(unsigned char)(t/0.33*255); g=0; b=0; }
-    else if (t<0.66) { r=255; g=(unsigned char)((t-0.33)/0.33*255); b=0; }
-    else { r=255; g=255; b=(unsigned char)((t-0.66)/0.34*255); }
-    return (Color){r,g,b,255};
-}
 
 /* ----- ODE RHS ----- */
 
@@ -311,11 +210,11 @@ static void sim_step(void)
 
     /* Wall confinement (when geometry != NONE) */
     if (geometry != GEO_NONE) {
-        double d = geo_sdf(state[0], state[1]);
+        double d = h_geo_sdf(state[0], state[1]);
         double wall_zone = RMAX * 0.15;
         if (d < wall_zone) {
             double nx, ny;
-            geo_normal(state[0], state[1], &nx, &ny);
+            h_geo_normal(state[0], state[1], &nx, &ny);
             double nm = sqrt(nx*nx + ny*ny);
             if (nm > 1e-10) {
                 nx /= nm; ny /= nm;
@@ -329,10 +228,10 @@ static void sim_step(void)
             }
         }
         /* Hard clamp */
-        d = geo_sdf(state[0], state[1]);
+        d = h_geo_sdf(state[0], state[1]);
         if (d < RMAX * 0.02) {
             double nx, ny;
-            geo_normal(state[0], state[1], &nx, &ny);
+            h_geo_normal(state[0], state[1], &nx, &ny);
             double nm = sqrt(nx*nx + ny*ny);
             if (nm > 1e-10) {
                 state[0] -= (RMAX*0.02 - d) * nx/nm;
@@ -473,7 +372,7 @@ static void render_wave_tex(Texture2D tex)
         for (int ix=0; ix<GRID; ix++) {
             double x = (2.0*ix/(GRID-1)-1.0)*RMAX;
             int idx = iy*GRID+ix;
-            if (!geo_inside(x,y))
+            if (!geo_inside(geometry,x/RMAX,y/RMAX))
                 wpix[idx] = (Color){30,30,30,255};
             else
                 wpix[idx] = cmap_bwr((wave_grid[iy][ix]-vmin)/range);
@@ -498,7 +397,7 @@ static void render_right_tex(Texture2D tex)
             for (int ix=0;ix<GRID;ix++) {
                 double x=(2.0*ix/(GRID-1)-1.0)*RMAX;
                 int idx=iy*GRID+ix;
-                if (!geo_inside(x,y)) rpix[idx] = (Color){30,30,30,255};
+                if (!geo_inside(geometry,x/RMAX,y/RMAX)) rpix[idx] = (Color){30,30,30,255};
                 else if (hist[iy][ix] == 0) rpix[idx] = BLACK;
                 else rpix[idx] = cmap_hot((log(1.0+(double)hist[iy][ix]) - lmin) / lrange);
             }
@@ -514,7 +413,7 @@ static void render_right_tex(Texture2D tex)
             for (int ix=0;ix<GRID;ix++) {
                 double x=(2.0*ix/(GRID-1)-1.0)*RMAX;
                 int idx=iy*GRID+ix;
-                rpix[idx] = !geo_inside(x,y) ? (Color){30,30,30,255}
+                rpix[idx] = !geo_inside(geometry,x/RMAX,y/RMAX) ? (Color){30,30,30,255}
                            : cmap_hot(sqrt(h2_sum[iy][ix]/moment_n/peak));
             }
         }
@@ -530,7 +429,7 @@ static void render_right_tex(Texture2D tex)
             for (int ix=0;ix<GRID;ix++) {
                 double x=(2.0*ix/(GRID-1)-1.0)*RMAX;
                 int idx=iy*GRID+ix;
-                if (!geo_inside(x,y)) { rpix[idx]=(Color){30,30,30,255}; continue; }
+                if (!geo_inside(geometry,x/RMAX,y/RMAX)) { rpix[idx]=(Color){30,30,30,255}; continue; }
                 double m2=h2_sum[iy][ix]/moment_n, m4=h4_sum[iy][ix]/moment_n;
                 rpix[idx]=cmap_bwr(0.5+0.5*(m4-3.0*m2*m2)/amax);
             }
@@ -701,8 +600,8 @@ int main(void)
         }
         if (IsKeyPressed(KEY_RIGHT)) P.mu *= 1.1;
         if (IsKeyPressed(KEY_LEFT))  P.mu /= 1.1;
-        if (IsKeyPressed(KEY_EQUAL)) speed = speed<500 ? speed+50 : speed;
-        if (IsKeyPressed(KEY_MINUS)) speed = speed>50  ? speed-50 : speed;
+        if (IsKeyPressed(KEY_EQUAL)) speed = speed<2000 ? speed+100 : speed;
+        if (IsKeyPressed(KEY_MINUS)) speed = speed>100  ? speed-100 : speed;
         if (IsKeyPressed(KEY_O)) {
             /* Start orbit diagram sweep from current Me to Me+10 */
             sweeping = 1;
@@ -721,7 +620,7 @@ int main(void)
             if (m.x>=GAP && m.x<GAP+PANEL && m.y>=GAP && m.y<GAP+PANEL) {
                 double px = ((m.x-GAP)/PANEL*2-1)*RMAX;
                 double py = ((m.y-GAP)/PANEL*2-1)*RMAX;
-                if (geo_inside(px,py)) {
+                if (h_geo_inside(px,py)) {
                     memset(state,0,sizeof(state));
                     state[0]=px; state[1]=py;
                     double r=sqrt(px*px+py*py);
@@ -760,14 +659,14 @@ int main(void)
 
         if (turbo) {
             DrawRectangle(lx,ly,PANEL,PANEL,(Color){30,30,30,255});
-            geo_draw_outline(lx,ly,PANEL);
+            geo_draw_outline(geometry,lx,ly,PANEL);
             DrawText("TURBO MODE",lx+130,ly+160,24,(Color){255,100,100,255});
             char tb[128]; snprintf(tb,sizeof(tb),"%.0f steps/sec",turbo_sps);
             DrawText(tb,lx+140,ly+195,18,LIGHTGRAY);
             DrawText("[T] exit turbo",lx+140,ly+225,14,GRAY);
         } else {
             DrawTextureEx(wtex,(Vector2){lx,ly},0,scale,WHITE);
-            geo_draw_outline(lx,ly,PANEL);
+            geo_draw_outline(geometry,lx,ly,PANEL);
 
             int tlen = n_trail<TRAIL_VIS ? n_trail : TRAIL_VIS;
             for (int k=1;k<tlen;k++) {
@@ -802,7 +701,7 @@ int main(void)
             DrawText("vx",rx+2,ry+2,12,GRAY);
         } else {
             /* Histogram, Born, Kurtosis — show geometry outline */
-            geo_draw_outline(rx,ry,PANEL);
+            geo_draw_outline(geometry,rx,ry,PANEL);
         }
         { char l[96]; snprintf(l,sizeof(l),"%s [V]",view_name());
           DrawText(l,rx,ry+PANEL+4,16,LIGHTGRAY); }
@@ -849,7 +748,7 @@ int main(void)
         DrawText(buf,GAP,iy,14,LIGHTGRAY);
         snprintf(buf,sizeof(buf),
             "%s [G]  |  harm: %s [H]  |  Poincare: %d  |  Orbit: %d  |  [O] sweep  |  [T] turbo",
-            geo_name(), P.harmonic?"ON":"OFF", n_poincare, n_orbit);
+            geo_name(geometry), P.harmonic?"ON":"OFF", n_poincare, n_orbit);
         DrawText(buf,GAP,iy+16,14,GRAY);
 
         EndDrawing();

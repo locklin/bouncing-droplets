@@ -16,82 +16,13 @@
  *   N/M         number of modes in thermal sum
  */
 
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include "raylib.h"
+#include "core.h"
 
-#define GRID     200
-#define EGRID    120         /* coarse grid for eigenmode computation */
+#define EGRID    120
 #define MAX_MODES 200
-#define LANCZOS_M 600        /* enough iterations to find many modes */
+#define LANCZOS_M 600
 
-typedef struct { double x, y; } V2;
-
-/* ----- Geometry ----- */
-
-enum { GEO_STADIUM, GEO_DSHAPE, GEO_CIRCLE, GEO_RECT, GEO_COUNT };
 static int geometry = GEO_STADIUM;
-
-#define DSHAPE_R   0.9
-#define DSHAPE_CUT (-0.3)
-
-static double geo_sdf(double x, double y)
-{
-    switch (geometry) {
-    case GEO_CIRCLE:  return 1.0 - sqrt(x*x+y*y);
-    case GEO_STADIUM: {
-        double a=0.5, r=0.5, ax=fabs(x);
-        return ax<=a ? r-fabs(y) : r-sqrt((ax-a)*(ax-a)+y*y);
-    }
-    case GEO_RECT:    return fmin(0.8-fabs(x), 0.5-fabs(y));
-    case GEO_DSHAPE:  return fmin(DSHAPE_R-sqrt(x*x+y*y), x-DSHAPE_CUT);
-    default: return -1;
-    }
-}
-
-static int geo_inside(double x, double y) { return geo_sdf(x,y) > 0; }
-
-#define S2P(px,py) (Vector2){ ox+((float)(px)*0.5f+0.5f)*sz, \
-                               oy+((float)(py)*0.5f+0.5f)*sz }
-static void geo_draw_outline(int ox, int oy, int sz)
-{
-    int N=200; Color col=LIGHTGRAY;
-    switch (geometry) {
-    case GEO_CIRCLE:
-        DrawCircleLinesV((Vector2){ox+sz/2.0f,oy+sz/2.0f},sz/2.0f,col); break;
-    case GEO_STADIUM: {
-        float a=0.5f,r=0.5f;
-        DrawLineV(S2P(-a,r),S2P(a,r),col); DrawLineV(S2P(-a,-r),S2P(a,-r),col);
-        for (int i=0;i<N;i++) {
-            float t0=PI/2+PI*i/(float)N, t1=PI/2+PI*(i+1)/(float)N;
-            DrawLineV(S2P(-a+r*cosf(t0),r*sinf(t0)),S2P(-a+r*cosf(t1),r*sinf(t1)),col);}
-        for (int i=0;i<N;i++) {
-            float t0=-PI/2+PI*i/(float)N, t1=-PI/2+PI*(i+1)/(float)N;
-            DrawLineV(S2P(a+r*cosf(t0),r*sinf(t0)),S2P(a+r*cosf(t1),r*sinf(t1)),col);}
-        break; }
-    case GEO_RECT: {
-        float hw=0.8f,hh=0.5f;
-        DrawLineV(S2P(-hw,-hh),S2P(hw,-hh),col); DrawLineV(S2P(hw,-hh),S2P(hw,hh),col);
-        DrawLineV(S2P(hw,hh),S2P(-hw,hh),col); DrawLineV(S2P(-hw,hh),S2P(-hw,-hh),col);
-        break; }
-    case GEO_DSHAPE: {
-        float R=DSHAPE_R, yint=sqrtf(R*R-DSHAPE_CUT*DSHAPE_CUT);
-        float a0=atan2f(yint,DSHAPE_CUT),a1=atan2f(-yint,DSHAPE_CUT),span=a0-a1;
-        DrawLineV(S2P(DSHAPE_CUT,-yint),S2P(DSHAPE_CUT,yint),col);
-        for (int i=0;i<N;i++) {
-            float t0=a0-span*i/(float)N, t1=a0-span*(i+1)/(float)N;
-            DrawLineV(S2P(R*cosf(t0),R*sinf(t0)),S2P(R*cosf(t1),R*sinf(t1)),col);}
-        break; }
-    }
-}
-#undef S2P
-
-static const char *geo_name(void) {
-    const char *n[]={"Stadium","D-shape","Circle","Rectangle"};
-    return geometry<GEO_COUNT ? n[geometry] : "?";
-}
 
 /* ----- Eigenmodes ----- */
 
@@ -198,7 +129,7 @@ static void interp_c2f(const double *coarse, double *fine)
 static void compute_modes(void)
 {
     int EN = EGRID*EGRID;
-    printf("Computing eigenmodes for %s on %dx%d grid...\n", geo_name(), EGRID, EGRID);
+    printf("Computing eigenmodes for %s on %dx%d grid...\n", geo_name(geometry), EGRID, EGRID);
 
     /* Build interior mask */
     int n_int = 0;
@@ -208,7 +139,7 @@ static void compute_modes(void)
             double x = 2.0*ix/(EGRID-1)-1.0;
             int i = iy*EGRID+ix;
             einterior[i] = (iy>0 && iy<EGRID-1 && ix>0 && ix<EGRID-1
-                            && geo_inside(x,y)) ? 1 : 0;
+                            && geo_inside(geometry,x,y)) ? 1 : 0;
             if (einterior[i]) n_int++;
         }
     }
@@ -303,21 +234,6 @@ static void compute_modes(void)
 
 static Color wpix[GRID*GRID], rpix[GRID*GRID];
 
-static Color cmap_bwr(double t) {
-    if (t<0) t=0; if (t>1) t=1;
-    if (t<0.5) { unsigned char v=(unsigned char)(t*2*255); return (Color){v,v,255,255}; }
-    else { unsigned char v=(unsigned char)((1-t)*2*255); return (Color){255,v,v,255}; }
-}
-
-static Color cmap_hot(double t) {
-    if (t<0) t=0; if (t>1) t=1;
-    unsigned char r,g,b;
-    if (t<0.33) { r=(unsigned char)(t/0.33*255); g=0; b=0; }
-    else if (t<0.66) { r=255; g=(unsigned char)((t-0.33)/0.33*255); b=0; }
-    else { r=255; g=255; b=(unsigned char)((t-0.66)/0.34*255); }
-    return (Color){r,g,b,255};
-}
-
 enum { VIEW_PSI, VIEW_PSI2, VIEW_THERMAL, VIEW_COUNT };
 static int view_mode = VIEW_PSI2;
 
@@ -340,7 +256,7 @@ static void render_panels(Texture2D ltex, Texture2D rtex)
         for (int ix=0; ix<GRID; ix++) {
             double x=2.0*ix/(GRID-1)-1.0;
             int idx=iy*GRID+ix;
-            wpix[idx] = !geo_inside(x,y) ? (Color){30,30,30,255}
+            wpix[idx] = !geo_inside(geometry,x,y) ? (Color){30,30,30,255}
                        : cmap_bwr(0.5 + 0.5*phi[idx]/amax);
         }
     }
@@ -360,7 +276,7 @@ static void render_panels(Texture2D ltex, Texture2D rtex)
             for (int ix=0; ix<GRID; ix++) {
                 double x=2.0*ix/(GRID-1)-1.0;
                 int idx=iy*GRID+ix;
-                rpix[idx] = !geo_inside(x,y) ? (Color){30,30,30,255}
+                rpix[idx] = !geo_inside(geometry,x,y) ? (Color){30,30,30,255}
                            : cmap_hot(sqrt(phi[idx]*phi[idx]/peak));
             }
         }
@@ -380,7 +296,7 @@ static void render_panels(Texture2D ltex, Texture2D rtex)
             for (int ix=0; ix<GRID; ix++) {
                 double x=2.0*ix/(GRID-1)-1.0;
                 int idx=iy*GRID+ix;
-                if (!geo_inside(x,y)) { rpix[idx]=(Color){30,30,30,255}; continue; }
+                if (!geo_inside(geometry,x,y)) { rpix[idx]=(Color){30,30,30,255}; continue; }
                 double s = 0;
                 for (int m=0; m<nm; m++) s += modes[m][idx]*modes[m][idx];
                 rpix[idx] = cmap_hot(sqrt(s/peak));
@@ -390,10 +306,6 @@ static void render_panels(Texture2D ltex, Texture2D rtex)
     UpdateTexture(rtex, rpix);
 }
 
-static const char *view_name(void) {
-    const char *n[]={"psi","psi","sum |psi_n|^2"};
-    return view_mode<VIEW_COUNT ? n[view_mode] : "?";
-}
 
 /* ----- Main ----- */
 
@@ -431,14 +343,14 @@ int main(void)
         float scale=(float)PANEL/GRID;
 
         DrawTextureEx(ltex,(Vector2){lx,ly},0,scale,WHITE);
-        geo_draw_outline(lx,ly,PANEL);
+        geo_draw_outline(geometry,lx,ly,PANEL);
         { char l[64];
           snprintf(l,sizeof(l),"psi_%d  (k=%.2f) [Up/Dn]",
                    cur_mode, n_modes>0?mode_k[cur_mode]:0);
           DrawText(l,lx,ly+PANEL+4,16,LIGHTGRAY); }
 
         DrawTextureEx(rtex,(Vector2){rx,ry},0,scale,WHITE);
-        geo_draw_outline(rx,ry,PANEL);
+        geo_draw_outline(geometry,rx,ry,PANEL);
         { char l[64];
           if (view_mode == VIEW_THERMAL)
               snprintf(l,sizeof(l),"sum |psi_n|^2 (n=0..%d) [N/M]",thermal_n-1);
@@ -450,7 +362,7 @@ int main(void)
         snprintf(buf,sizeof(buf),
             "Mode %d/%d  |  k = %.3f  |  k^2 = %.2f  |  %s [G]  |  [V] view  |  [R] recompute",
             cur_mode, n_modes, n_modes>0?mode_k[cur_mode]:0,
-            n_modes>0?mode_k[cur_mode]*mode_k[cur_mode]:0, geo_name());
+            n_modes>0?mode_k[cur_mode]*mode_k[cur_mode]:0, geo_name(geometry));
         DrawText(buf,GAP,iy,14,LIGHTGRAY);
         snprintf(buf,sizeof(buf),
             "Thermal modes: %d [N/M]  |  Grid: %dx%d  |  Lanczos: %d iter",
