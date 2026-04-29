@@ -23,7 +23,12 @@ typedef struct { double x, y; } V2;
 #define WIN_H  (PANEL + GAP*2 + 60)
 
 /* ----- Geometry ----- */
-enum { GEO_STADIUM, GEO_DSHAPE, GEO_CIRCLE, GEO_RECT, GEO_NONE, GEO_COUNT };
+enum { GEO_STADIUM, GEO_DSHAPE, GEO_CIRCLE, GEO_ELLSTADIUM, GEO_RECT, GEO_NONE, GEO_COUNT };
+
+/* Elliptical stadium parameters (Lopac et al. 2006):
+ * delta=0.7, gamma=0.4 — flattened semiellipses, fully chaotic */
+#define ESTD_D 0.7    /* half-length of flat section (0 to 1) */
+#define ESTD_G 0.4    /* semiaxis height of ellipse */
 
 /* All geometry functions take an explicit geo parameter so they
  * don't depend on a global.  Callers pass their own `geometry` var. */

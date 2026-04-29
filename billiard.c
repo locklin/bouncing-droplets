@@ -26,7 +26,12 @@ static int    poincare_hist[GRID][GRID];
 static int    ppeak = 1;
 static int    n_poincare = 0;
 
-enum { VIEW_HIST, VIEW_POINCARE, VIEW_COUNT };
+/* (X, Vx) Poincare: y=0 upward crossings, like walker/oza */
+#define MAX_POINCARE_XV 100000
+static V2     poincare_xv[MAX_POINCARE_XV];
+static int    n_poincare_xv = 0, poincare_xv_head = 0;
+
+enum { VIEW_HIST, VIEW_POINCARE, VIEW_POINCARE_XV, VIEW_COUNT };
 static int view_mode = VIEW_HIST;
 static Color rpix[GRID*GRID];
 
@@ -34,6 +39,7 @@ static Color rpix[GRID*GRID];
 
 static void billiard_step(void)
 {
+    double old_y = pos.y;
     double dt_remain = DT;
     for (int bounce = 0; bounce < 10 && dt_remain > 1e-10; bounce++) {
         double nx = pos.x + vel.x*dt_remain, ny = pos.y + vel.y*dt_remain;
@@ -75,6 +81,20 @@ static void billiard_step(void)
     }
     total_steps++;
 
+    /* (X, Vx) Poincare: y=0 upward crossing */
+    if (old_y <= 0 && pos.y > 0) {
+        double dy = pos.y - old_y;
+        double frac = (dy > 1e-15) ? -old_y / dy : 0.5;
+        double xc = pos.x - vel.x*dt_remain*(1-frac); /* approximate crossing x */
+        (void)xc; xc = pos.x; /* simpler: just use current x */
+        if (n_poincare_xv < MAX_POINCARE_XV)
+            poincare_xv[n_poincare_xv++] = (V2){pos.x, vel.x};
+        else {
+            poincare_xv[poincare_xv_head] = (V2){pos.x, vel.x};
+            poincare_xv_head = (poincare_xv_head+1) % MAX_POINCARE_XV;
+        }
+    }
+
     trail[trail_head] = pos;
     trail_head = (trail_head+1)%MAX_TRAIL;
     if (n_trail < MAX_TRAIL) n_trail++;
@@ -87,7 +107,7 @@ static void render_right(Texture2D tex)
 {
     if (view_mode == VIEW_HIST) {
         render_hist(rpix, hist, hpeak, geometry, 1.0);
-    } else {
+    } else if (view_mode == VIEW_POINCARE) {
         /* Birkhoff Poincare: pre-binned density */
         double lmin=1e30, lmax=0;
         for (int i=0; i<GRID*GRID; i++)
@@ -104,6 +124,9 @@ static void render_right(Texture2D tex)
         int mid=GRID/2;
         for (int ix=0;ix<GRID;ix++)
             if (poincare_hist[mid][ix]==0) rpix[mid*GRID+ix]=(Color){40,40,50,255};
+    } else if (view_mode == VIEW_POINCARE_XV) {
+        /* (X, Vx) Poincare from y=0 crossings — same as walker/oza */
+        render_poincare(rpix, poincare_xv, n_poincare_xv, poincare_xv_head, MAX_POINCARE_XV);
     }
     UpdateTexture(tex, rpix);
 }
@@ -118,6 +141,7 @@ static void reset_sim(void)
     vel.x=0.5*cos(angle); vel.y=0.5*sin(angle);
     n_trail=0; trail_head=0; total_bounces=0; total_steps=0;
     hpeak=1; n_poincare=0; ppeak=1;
+    n_poincare_xv=0; poincare_xv_head=0;
     memset(hist,0,sizeof(hist)); memset(poincare_hist,0,sizeof(poincare_hist));
 }
 
@@ -183,8 +207,12 @@ int main(void)
             DrawRectangleLines(rx,ry,PANEL,PANEL,GRAY);
             DrawText("s",rx+PANEL-12,ry+PANEL+4,12,GRAY);
             DrawText("sin a",rx+2,ry+2,12,GRAY);
+        } else if (view_mode==VIEW_POINCARE_XV) {
+            DrawRectangleLines(rx,ry,PANEL,PANEL,GRAY);
+            DrawText("x",rx+PANEL-12,ry+PANEL+4,12,GRAY);
+            DrawText("vx",rx+2,ry+2,12,GRAY);
         } else geo_draw_outline(geometry,rx,ry,PANEL);
-        { const char *vn[]={"Histogram [V]","Poincare (s,sin a) [V]"};
+        { const char *vn[]={"Histogram","Birkhoff (s,sin a)","Poincare (x,vx)"};
           DrawText(vn[view_mode],rx,ry+PANEL+4,16,LIGHTGRAY); }
 
         int iy=GAP+PANEL+24; char buf[256];

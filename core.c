@@ -21,6 +21,16 @@ double geo_sdf(int geo, double x, double y)
     }
     case GEO_RECT:    return fmin(0.8 - fabs(x), 0.5 - fabs(y));
     case GEO_DSHAPE:  return fmin(DSHAPE_R - sqrt(x*x+y*y), x - DSHAPE_CUT);
+    case GEO_ELLSTADIUM: {
+        double ax = fabs(x);
+        double ymax;
+        if (ax <= ESTD_D) ymax = ESTD_G;
+        else if (ax <= 1.0) {
+            double u = (ax - ESTD_D) / (1.0 - ESTD_D);
+            ymax = ESTD_G * sqrt(fmax(0, 1.0 - u*u));
+        } else return -fabs(y);
+        return ymax - fabs(y);
+    }
     default:          return 1.0;  /* GEO_NONE: always inside */
     }
 }
@@ -74,6 +84,22 @@ double geo_arclength(int geo, double x, double y)
             return fmod((chord_len + R*(ang_top-ang)) / perim + 1.0, 1.0);
         }
     }
+    case GEO_ELLSTADIUM: {
+        /* Approximate arclength using angle on the boundary */
+        double d = ESTD_D, g = ESTD_G;
+        double ax = fabs(x);
+        if (ax <= d) {
+            /* On flat top or bottom */
+            if (y > 0) return 0.5 * (x + d) / (2*d + 2*(1-d)); /* top flat, rough */
+            else return 0.5 + 0.5 * (d - x) / (2*d + 2*(1-d)); /* bottom flat, rough */
+        } else {
+            /* On ellipse — use angle */
+            double u = (ax - d) / (1 - d);
+            double v = fabs(y) / g;
+            double ang = atan2(v, u);
+            return fmod(ang / (2*M_PI) + 0.5, 1.0);
+        }
+    }
     default: return 0;
     }
 }
@@ -112,13 +138,29 @@ void geo_draw_outline(int geo, int ox, int oy, int sz)
             float t0=a0-span*i/(float)N, t1=a0-span*(i+1)/(float)N;
             DrawLineV(S2P(R*cosf(t0),R*sinf(t0)),S2P(R*cosf(t1),R*sinf(t1)),col); }
         break; }
+    case GEO_ELLSTADIUM: {
+        float d=ESTD_D, g=ESTD_G;
+        /* Flat top/bottom */
+        DrawLineV(S2P(-d,g), S2P(d,g), col);
+        DrawLineV(S2P(-d,-g), S2P(d,-g), col);
+        /* Right semiellipse: x = d + (1-d)*cos(t), y = g*sin(t), t from pi/2 to -pi/2 */
+        for (int i=0; i<N; i++) {
+            float t0=PI/2-PI*i/(float)N, t1=PI/2-PI*(i+1)/(float)N;
+            DrawLineV(S2P(d+(1-d)*cosf(t0), g*sinf(t0)),
+                      S2P(d+(1-d)*cosf(t1), g*sinf(t1)), col); }
+        /* Left semiellipse: mirror of right */
+        for (int i=0; i<N; i++) {
+            float t0=PI/2-PI*i/(float)N, t1=PI/2-PI*(i+1)/(float)N;
+            DrawLineV(S2P(-(d+(1-d)*cosf(t0)), g*sinf(t0)),
+                      S2P(-(d+(1-d)*cosf(t1)), g*sinf(t1)), col); }
+        break; }
     }
     #undef S2P
 }
 
 const char *geo_name(int geo)
 {
-    const char *names[] = {"Stadium","D-shape","Circle","Rectangle","None (harmonic)"};
+    const char *names[] = {"Stadium","D-shape","Circle","Ell.Stadium","Rectangle","None (harmonic)"};
     return (geo >= 0 && geo < GEO_COUNT) ? names[geo] : "?";
 }
 
